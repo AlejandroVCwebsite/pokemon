@@ -1,15 +1,23 @@
+
 // =========================================================
 // CANVAS AND CONSTANTS
 // =========================================================
 
 const canvas = document.getElementById("game");
+
+if (!canvas) {
+    throw new Error('Forest Quest needs a canvas element with id="game".');
+}
+
 const ctx = canvas.getContext("2d");
+
+if (!ctx) {
+    throw new Error("Your browser does not support Canvas 2D.");
+}
 
 ctx.imageSmoothingEnabled = false;
 
 const TILE = 48;
-const VIEW_COLS = canvas.width / TILE;   // 16
-const VIEW_ROWS = canvas.height / TILE;  // 12
 
 // =========================================================
 // INPUT
@@ -63,8 +71,8 @@ let messageTimer = 0;
 let lastTime = performance.now();
 
 const player = {
-    x: 7 * TILE + TILE / 2,
-    y: 9 * TILE + TILE / 2,
+    x: 21 * TILE + TILE / 2,
+    y: 18 * TILE + TILE / 2,
     w: 28,
     h: 28,
     speed: 190,
@@ -78,7 +86,6 @@ const player = {
     hasKey: false
 };
 
-// CAMERA follows the player in world coordinates.
 const camera = {
     x: 0,
     y: 0,
@@ -87,14 +94,6 @@ const camera = {
 
 // =========================================================
 // MAPS
-//
-// # = wall
-// . = floor
-// D = door
-// C = chest
-// X = exit
-//
-// All maps have the same dimensions: 24 columns x 12 rows.
 // =========================================================
 
 const maps = [
@@ -154,18 +153,49 @@ const maps = [
 ]
 ];
 
-const MAP_COLS = maps[0][0].length;
-const MAP_ROWS = maps[0].length;
+// Make every map rectangular.
+for (let i = 0; i < maps.length; i++) {
+    const width = Math.max(...maps[i].map(row => row.length));
+
+    maps[i] = maps[i].map(row => row.padEnd(width, "#"));
+}
+
+function mapWidth() {
+    return maps[room][0].length;
+}
+
+function mapHeight() {
+    return maps[room].length;
+}
 
 // =========================================================
 // DOOR CONNECTIONS
-// Door coordinates are tile coordinates.
 // =========================================================
 
 const DOOR_LINKS = {
-    "1:11:0":  { room: 0, spawnX: 11, spawnY: 1 },
-    "1:11:11": { room: 2, spawnX: 7, spawnY: 9 },
-    "2:7:8":   { room: 1, spawnX: 11, spawnY: 10 }
+    "0:30:9": {
+        room: 1,
+        spawnX: 11,
+        spawnY: 1
+    },
+
+    "1:11:0": {
+        room: 0,
+        spawnX: 29,
+        spawnY: 9
+    },
+
+    "1:11:11": {
+        room: 2,
+        spawnX: 7,
+        spawnY: 9
+    },
+
+    "2:7:8": {
+        room: 1,
+        spawnX: 11,
+        spawnY: 10
+    }
 };
 
 // =========================================================
@@ -252,24 +282,20 @@ function updateParticles(dt) {
 // =========================================================
 
 function updateCamera(dt) {
-    // Center the player in the viewport.
     const targetX = player.x - canvas.width / 2;
     const targetY = player.y - canvas.height / 2;
 
-    // Clamp the camera to the world boundaries.
-    const maxX = Math.max(0, MAP_COLS * TILE - canvas.width);
-    const maxY = Math.max(0, MAP_ROWS * TILE - canvas.height);
+    const maxX = Math.max(0, mapWidth() * TILE - canvas.width);
+    const maxY = Math.max(0, mapHeight() * TILE - canvas.height);
 
     const clampedX = Math.max(0, Math.min(targetX, maxX));
     const clampedY = Math.max(0, Math.min(targetY, maxY));
 
-    // Frame-rate-independent smooth following.
     const smoothing = 1 - Math.exp(-camera.smoothness * dt);
 
     camera.x += (clampedX - camera.x) * smoothing;
     camera.y += (clampedY - camera.y) * smoothing;
 
-    // Keep the camera exactly aligned at the world edges.
     if (clampedX === 0 || clampedX === maxX) {
         camera.x = clampedX;
     }
@@ -280,8 +306,8 @@ function updateCamera(dt) {
 }
 
 function snapCameraToPlayer() {
-    const maxX = Math.max(0, MAP_COLS * TILE - canvas.width);
-    const maxY = Math.max(0, MAP_ROWS * TILE - canvas.height);
+    const maxX = Math.max(0, mapWidth() * TILE - canvas.width);
+    const maxY = Math.max(0, mapHeight() * TILE - canvas.height);
 
     camera.x = Math.max(
         0,
@@ -308,6 +334,7 @@ function loadRoom(newRoom, spawnX = 7, spawnY = 9) {
 
     player.attacking = false;
     player.attackTimer = 0;
+    player.attackCooldown = 0;
 
     createEnemies();
 
@@ -332,8 +359,8 @@ function tileAt(x, y) {
     const ty = Math.floor(y / TILE);
 
     if (
-        tx < 0 || tx >= MAP_COLS ||
-        ty < 0 || ty >= MAP_ROWS
+        tx < 0 || tx >= mapWidth() ||
+        ty < 0 || ty >= mapHeight()
     ) {
         return "#";
     }
@@ -343,8 +370,8 @@ function tileAt(x, y) {
 
 function isSolidTile(tx, ty) {
     if (
-        tx < 0 || tx >= MAP_COLS ||
-        ty < 0 || ty >= MAP_ROWS
+        tx < 0 || tx >= mapWidth() ||
+        ty < 0 || ty >= mapHeight()
     ) {
         return true;
     }
@@ -464,15 +491,15 @@ function interact() {
 
     for (const [x, y] of around) {
         if (
-            x < 0 || x >= MAP_COLS ||
-            y < 0 || y >= MAP_ROWS
+            x < 0 || x >= mapWidth() ||
+            y < 0 || y >= mapHeight()
         ) {
             continue;
         }
 
         const tile = maps[room][y][x];
 
-        // Chest
+        // CHEST
         if (tile === "C") {
             replaceTile(x, y, ".");
 
@@ -495,7 +522,7 @@ function interact() {
             return;
         }
 
-        // Doors
+        // DOORS
         if (tile === "D") {
             const link = DOOR_LINKS[`${room}:${x}:${y}`];
 
@@ -505,14 +532,12 @@ function interact() {
             }
 
             if (link) {
-                replaceTile(x, y, ".");
                 loadRoom(
                     link.room,
                     link.spawnX,
                     link.spawnY
                 );
             } else {
-                // Doors without a destination can still be opened.
                 replaceTile(x, y, ".");
                 showMessage("The door opens!");
             }
@@ -520,7 +545,7 @@ function interact() {
             return;
         }
 
-        // Exit
+        // EXIT
         if (tile === "X") {
             if (enemies.length !== 0) {
                 showMessage("Defeat every enemy first!");
@@ -688,7 +713,6 @@ function update(now) {
         }
     }
 
-    // Update the camera after player movement.
     updateCamera(dt);
 
     draw();
@@ -721,17 +745,16 @@ function checkExit() {
 function drawMap() {
     const map = maps[room];
 
-    // Only draw tiles visible through the camera.
     const startCol = Math.max(0, Math.floor(camera.x / TILE));
     const startRow = Math.max(0, Math.floor(camera.y / TILE));
 
     const endCol = Math.min(
-        MAP_COLS,
+        mapWidth(),
         Math.ceil((camera.x + canvas.width) / TILE)
     );
 
     const endRow = Math.min(
-        MAP_ROWS,
+        mapHeight(),
         Math.ceil((camera.y + canvas.height) / TILE)
     );
 
@@ -742,11 +765,11 @@ function drawMap() {
             const px = x * TILE;
             const py = y * TILE;
 
-            // Floor
+            // FLOOR
             ctx.fillStyle = "#315b32";
             ctx.fillRect(px, py, TILE, TILE);
 
-            // Grass details, consistent for every frame.
+            // GRASS DETAILS
             ctx.fillStyle = "#3d6d39";
 
             for (let i = 0; i < 3; i++) {
@@ -756,7 +779,7 @@ function drawMap() {
                 ctx.fillRect(gx, gy, 3, 3);
             }
 
-            // Walls
+            // WALLS
             if (tile === "#") {
                 ctx.fillStyle = "#26332b";
                 ctx.fillRect(px, py, TILE, TILE);
@@ -849,25 +872,25 @@ function drawPlayer() {
         return;
     }
 
-    // Shadow
+    // SHADOW
     ctx.fillStyle = "rgba(0,0,0,.35)";
     ctx.beginPath();
     ctx.ellipse(x, y + 13, 17, 7, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Body
+    // BODY
     ctx.fillStyle = "#286b43";
     ctx.fillRect(x - 12, y - 3, 24, 22);
 
-    // Head
+    // HEAD
     ctx.fillStyle = "#e4a66b";
     ctx.fillRect(x - 11, y - 18, 22, 18);
 
-    // Hair
+    // HAIR
     ctx.fillStyle = "#54351e";
     ctx.fillRect(x - 11, y - 20, 22, 6);
 
-    // Hat
+    // HAT
     ctx.fillStyle = "#3f9b54";
     ctx.beginPath();
     ctx.moveTo(x - 13, y - 18);
@@ -877,18 +900,18 @@ function drawPlayer() {
     ctx.closePath();
     ctx.fill();
 
-    // Eyes
+    // EYES
     ctx.fillStyle = "#1b1b1b";
     ctx.fillRect(x - 7, y - 12, 4, 4);
     ctx.fillRect(x + 3, y - 12, 4, 4);
 
-    // Shield
+    // SHIELD
     ctx.fillStyle = "#687f9d";
     ctx.beginPath();
     ctx.arc(x + 15, y + 4, 8, 0, Math.PI * 2);
     ctx.fill();
 
-    // Sword attack
+    // SWORD ATTACK
     if (player.attacking) {
         ctx.strokeStyle = "#e8f4ff";
         ctx.lineWidth = 6;
@@ -924,19 +947,19 @@ function drawEnemies() {
         const x = enemy.x;
         const y = enemy.y;
 
-        // Shadow
+        // SHADOW
         ctx.fillStyle = "rgba(0,0,0,.3)";
         ctx.beginPath();
         ctx.ellipse(x, y + 13, 15, 6, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        // Body
+        // BODY
         ctx.fillStyle = "#8b3f54";
         ctx.beginPath();
         ctx.arc(x, y, 15, 0, Math.PI * 2);
         ctx.fill();
 
-        // Ears
+        // EARS
         ctx.fillStyle = "#a95163";
 
         ctx.beginPath();
@@ -951,12 +974,12 @@ function drawEnemies() {
         ctx.lineTo(x + 2, y - 9);
         ctx.fill();
 
-        // Eyes
+        // EYES
         ctx.fillStyle = "#ffd85b";
         ctx.fillRect(x - 8, y - 4, 5, 5);
         ctx.fillRect(x + 3, y - 4, 5, 5);
 
-        // Health bar
+        // HEALTH BAR
         ctx.fillStyle = "#1b1b1b";
         ctx.fillRect(x - 15, y - 27, 30, 4);
 
@@ -1012,11 +1035,13 @@ function drawHUD() {
 
     ctx.fillStyle = "#fff";
     ctx.textAlign = "right";
+
     ctx.fillText(
         "Room " + (room + 1) + "/3",
         canvas.width - 15,
         30
     );
+
     ctx.textAlign = "left";
 }
 
@@ -1066,6 +1091,7 @@ function drawEndScreen() {
 
         ctx.fillStyle = "#fff";
         ctx.font = "22px Arial";
+
         ctx.fillText(
             "You escaped the Forest Quest!",
             canvas.width / 2,
@@ -1079,6 +1105,7 @@ function drawEndScreen() {
         );
 
         ctx.font = "16px Arial";
+
         ctx.fillText(
             "Refresh the page to play again.",
             canvas.width / 2,
@@ -1091,6 +1118,7 @@ function drawEndScreen() {
 
         ctx.fillStyle = "#fff";
         ctx.font = "20px Arial";
+
         ctx.fillText(
             "Refresh the page to try again.",
             canvas.width / 2,
@@ -1098,6 +1126,7 @@ function drawEndScreen() {
         );
 
         ctx.font = "16px Arial";
+
         ctx.fillText(
             "Final score: " + score,
             canvas.width / 2,
@@ -1115,9 +1144,12 @@ function drawEndScreen() {
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Camera transform: world positions scroll with the player.
     ctx.save();
-    ctx.translate(-Math.round(camera.x), -Math.round(camera.y));
+
+    ctx.translate(
+        -Math.round(camera.x),
+        -Math.round(camera.y)
+    );
 
     drawMap();
     drawEnemies();
@@ -1126,7 +1158,6 @@ function draw() {
 
     ctx.restore();
 
-    // HUD and messages stay fixed on the screen.
     drawHUD();
     drawEndScreen();
 }
