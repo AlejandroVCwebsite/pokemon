@@ -1,0 +1,1140 @@
+// =========================================================
+// CANVAS AND CONSTANTS
+// =========================================================
+
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+ctx.imageSmoothingEnabled = false;
+
+const TILE = 48;
+const VIEW_COLS = canvas.width / TILE;   // 16
+const VIEW_ROWS = canvas.height / TILE;  // 12
+
+// =========================================================
+// INPUT
+// =========================================================
+
+const keys = Object.create(null);
+
+let interactPressed = false;
+let attackPressed = false;
+
+window.addEventListener("keydown", (e) => {
+    const key = e.key.toLowerCase();
+
+    if (
+        ["arrowup", "arrowdown", "arrowleft",
+         "arrowright", " "].includes(key)
+    ) {
+        e.preventDefault();
+    }
+
+    if (!keys[key]) {
+        if (key === "e") interactPressed = true;
+        if (key === " ") attackPressed = true;
+    }
+
+    keys[key] = true;
+});
+
+window.addEventListener("keyup", (e) => {
+    keys[e.key.toLowerCase()] = false;
+});
+
+window.addEventListener("blur", () => {
+    for (const key in keys) {
+        keys[key] = false;
+    }
+
+    interactPressed = false;
+    attackPressed = false;
+});
+
+// =========================================================
+// GAME STATE
+// =========================================================
+
+let room = 0;
+let score = 0;
+let gameOver = false;
+let victory = false;
+let messageTimer = 0;
+let lastTime = performance.now();
+
+const player = {
+    x: 7 * TILE + TILE / 2,
+    y: 9 * TILE + TILE / 2,
+    w: 28,
+    h: 28,
+    speed: 190,
+    health: 5,
+    maxHealth: 5,
+    attacking: false,
+    attackTimer: 0,
+    attackCooldown: 0,
+    direction: "up",
+    invincible: 0,
+    hasKey: false
+};
+
+// CAMERA follows the player in world coordinates.
+const camera = {
+    x: 0,
+    y: 0,
+    smoothness: 8
+};
+
+// =========================================================
+// MAPS
+//
+// # = wall
+// . = floor
+// D = door
+// C = chest
+// X = exit
+//
+// All maps have the same dimensions: 24 columns x 12 rows.
+// =========================================================
+
+const maps = [
+[
+"########################################",
+"#......................................#",
+"#......................................#",
+"#......................................#",
+"#......................................#",
+"#......................................#",
+"#......................................#",
+"#......................................#",
+"#......................................#",
+"#.............................D........#",
+"#....................X.................#",
+"#......................................#",
+"#......................................#",
+"#......................................#",
+"#.......C..............................#",
+"#......................................#",
+"#......................................#",
+"#......................................#",
+"#....................P.................#",
+"#......................................#",
+"#......................................#",
+"######################################"
+],
+
+[
+"###########D############",
+"#......................#",
+"#....#####.............#",
+"#....#...#.............#",
+"#....#...#.............#",
+"#....#...#.............#",
+"#....#####.............#",
+"#......................#",
+"#......C...............#",
+"#......................#",
+"#......................#",
+"###########D############"
+],
+
+[
+"########################",
+"#......................#",
+"#......................#",
+"#..####................#",
+"#..#..#................#",
+"#..#..#....X...........#",
+"#..####................#",
+"#......................#",
+"#......D...............#",
+"#......................#",
+"#......................#",
+"########################"
+]
+];
+
+const MAP_COLS = maps[0][0].length;
+const MAP_ROWS = maps[0].length;
+
+// =========================================================
+// DOOR CONNECTIONS
+// Door coordinates are tile coordinates.
+// =========================================================
+
+const DOOR_LINKS = {
+    "1:11:0":  { room: 0, spawnX: 11, spawnY: 1 },
+    "1:11:11": { room: 2, spawnX: 7, spawnY: 9 },
+    "2:7:8":   { room: 1, spawnX: 11, spawnY: 10 }
+};
+
+// =========================================================
+// ENEMIES
+// =========================================================
+
+let enemies = [];
+
+function makeEnemy(tx, ty) {
+    return {
+        x: tx * TILE + TILE / 2,
+        y: ty * TILE + TILE / 2,
+        w: 26,
+        h: 26,
+        speed: 55 + Math.random() * 20,
+        health: 2,
+        maxHealth: 2,
+        attackTimer: 0
+    };
+}
+
+function createEnemies() {
+    enemies = [];
+
+    if (room === 0) {
+        enemies.push(makeEnemy(11, 3));
+        enemies.push(makeEnemy(18, 7));
+        enemies.push(makeEnemy(5, 8));
+    }
+
+    if (room === 1) {
+        enemies.push(makeEnemy(3, 3));
+        enemies.push(makeEnemy(15, 3));
+        enemies.push(makeEnemy(19, 8));
+        enemies.push(makeEnemy(7, 9));
+    }
+
+    if (room === 2) {
+        enemies.push(makeEnemy(4, 2));
+        enemies.push(makeEnemy(17, 3));
+        enemies.push(makeEnemy(4, 8));
+        enemies.push(makeEnemy(19, 8));
+    }
+}
+
+createEnemies();
+
+// =========================================================
+// PARTICLES
+// =========================================================
+
+let particles = [];
+
+function particle(x, y, color, amount = 8) {
+    for (let i = 0; i < amount; i++) {
+        particles.push({
+            x,
+            y,
+            vx: (Math.random() - 0.5) * 160,
+            vy: (Math.random() - 0.5) * 160,
+            life: 0.5 + Math.random() * 0.5,
+            maxLife: 1,
+            color
+        });
+    }
+}
+
+function updateParticles(dt) {
+    for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.life -= dt;
+
+        if (p.life <= 0) {
+            particles.splice(i, 1);
+        }
+    }
+}
+
+// =========================================================
+// CAMERA
+// =========================================================
+
+function updateCamera(dt) {
+    // Center the player in the viewport.
+    const targetX = player.x - canvas.width / 2;
+    const targetY = player.y - canvas.height / 2;
+
+    // Clamp the camera to the world boundaries.
+    const maxX = Math.max(0, MAP_COLS * TILE - canvas.width);
+    const maxY = Math.max(0, MAP_ROWS * TILE - canvas.height);
+
+    const clampedX = Math.max(0, Math.min(targetX, maxX));
+    const clampedY = Math.max(0, Math.min(targetY, maxY));
+
+    // Frame-rate-independent smooth following.
+    const smoothing = 1 - Math.exp(-camera.smoothness * dt);
+
+    camera.x += (clampedX - camera.x) * smoothing;
+    camera.y += (clampedY - camera.y) * smoothing;
+
+    // Keep the camera exactly aligned at the world edges.
+    if (clampedX === 0 || clampedX === maxX) {
+        camera.x = clampedX;
+    }
+
+    if (clampedY === 0 || clampedY === maxY) {
+        camera.y = clampedY;
+    }
+}
+
+function snapCameraToPlayer() {
+    const maxX = Math.max(0, MAP_COLS * TILE - canvas.width);
+    const maxY = Math.max(0, MAP_ROWS * TILE - canvas.height);
+
+    camera.x = Math.max(
+        0,
+        Math.min(player.x - canvas.width / 2, maxX)
+    );
+
+    camera.y = Math.max(
+        0,
+        Math.min(player.y - canvas.height / 2, maxY)
+    );
+}
+
+// =========================================================
+// ROOM MANAGEMENT
+// =========================================================
+
+function loadRoom(newRoom, spawnX = 7, spawnY = 9) {
+    if (newRoom < 0 || newRoom >= maps.length) return;
+
+    room = newRoom;
+
+    player.x = spawnX * TILE + TILE / 2;
+    player.y = spawnY * TILE + TILE / 2;
+
+    player.attacking = false;
+    player.attackTimer = 0;
+
+    createEnemies();
+
+    player.health = Math.min(
+        player.health + 1,
+        player.maxHealth
+    );
+
+    particles = [];
+
+    snapCameraToPlayer();
+
+    showMessage("Room " + (room + 1));
+}
+
+// =========================================================
+// MAP COLLISION
+// =========================================================
+
+function tileAt(x, y) {
+    const tx = Math.floor(x / TILE);
+    const ty = Math.floor(y / TILE);
+
+    if (
+        tx < 0 || tx >= MAP_COLS ||
+        ty < 0 || ty >= MAP_ROWS
+    ) {
+        return "#";
+    }
+
+    return maps[room][ty][tx];
+}
+
+function isSolidTile(tx, ty) {
+    if (
+        tx < 0 || tx >= MAP_COLS ||
+        ty < 0 || ty >= MAP_ROWS
+    ) {
+        return true;
+    }
+
+    const tile = maps[room][ty][tx];
+
+    return tile === "#" || tile === "D";
+}
+
+function collidesWall(x, y, w, h) {
+    const left = Math.floor((x - w / 2) / TILE);
+    const right = Math.floor((x + w / 2 - 0.001) / TILE);
+    const top = Math.floor((y - h / 2) / TILE);
+    const bottom = Math.floor((y + h / 2 - 0.001) / TILE);
+
+    for (let ty = top; ty <= bottom; ty++) {
+        for (let tx = left; tx <= right; tx++) {
+            if (isSolidTile(tx, ty)) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+// =========================================================
+// MOVEMENT
+// =========================================================
+
+function movePlayer(dx, dy) {
+    const nx = player.x + dx;
+
+    if (!collidesWall(nx, player.y, player.w, player.h)) {
+        player.x = nx;
+    }
+
+    const ny = player.y + dy;
+
+    if (!collidesWall(player.x, ny, player.w, player.h)) {
+        player.y = ny;
+    }
+}
+
+// =========================================================
+// COMBAT
+// =========================================================
+
+function startAttack() {
+    if (
+        player.attackCooldown > 0 ||
+        gameOver ||
+        victory
+    ) {
+        return;
+    }
+
+    player.attacking = true;
+    player.attackTimer = 0.18;
+    player.attackCooldown = 0.35;
+
+    checkAttackHits();
+}
+
+function checkAttackHits() {
+    const range = 48;
+
+    let ax = player.x;
+    let ay = player.y;
+
+    if (player.direction === "up") ay -= range;
+    if (player.direction === "down") ay += range;
+    if (player.direction === "left") ax -= range;
+    if (player.direction === "right") ax += range;
+
+    for (let i = enemies.length - 1; i >= 0; i--) {
+        const enemy = enemies[i];
+
+        if (Math.hypot(enemy.x - ax, enemy.y - ay) < 40) {
+            enemy.health--;
+
+            particle(enemy.x, enemy.y, "#ffdf5d");
+
+            if (enemy.health <= 0) {
+                score += 100;
+
+                particle(
+                    enemy.x,
+                    enemy.y,
+                    "#7cff70",
+                    14
+                );
+
+                enemies.splice(i, 1);
+            }
+        }
+    }
+}
+
+// =========================================================
+// INTERACTION
+// =========================================================
+
+function interact() {
+    if (gameOver || victory) return;
+
+    const tx = Math.floor(player.x / TILE);
+    const ty = Math.floor(player.y / TILE);
+
+    const around = [
+        [tx, ty],
+        [tx + 1, ty],
+        [tx - 1, ty],
+        [tx, ty + 1],
+        [tx, ty - 1]
+    ];
+
+    for (const [x, y] of around) {
+        if (
+            x < 0 || x >= MAP_COLS ||
+            y < 0 || y >= MAP_ROWS
+        ) {
+            continue;
+        }
+
+        const tile = maps[room][y][x];
+
+        // Chest
+        if (tile === "C") {
+            replaceTile(x, y, ".");
+
+            if (!player.hasKey) {
+                player.hasKey = true;
+                score += 250;
+
+                particle(
+                    x * TILE + TILE / 2,
+                    y * TILE + TILE / 2,
+                    "#ffe66d",
+                    20
+                );
+
+                showMessage("You found the GOLDEN KEY!");
+            } else {
+                showMessage("The chest is empty.");
+            }
+
+            return;
+        }
+
+        // Doors
+        if (tile === "D") {
+            const link = DOOR_LINKS[`${room}:${x}:${y}`];
+
+            if (!player.hasKey) {
+                showMessage("The door is locked. Find the key!");
+                return;
+            }
+
+            if (link) {
+                replaceTile(x, y, ".");
+                loadRoom(
+                    link.room,
+                    link.spawnX,
+                    link.spawnY
+                );
+            } else {
+                // Doors without a destination can still be opened.
+                replaceTile(x, y, ".");
+                showMessage("The door opens!");
+            }
+
+            return;
+        }
+
+        // Exit
+        if (tile === "X") {
+            if (enemies.length !== 0) {
+                showMessage("Defeat every enemy first!");
+                return;
+            }
+
+            if (room < maps.length - 1) {
+                loadRoom(room + 1);
+            } else {
+                victory = true;
+            }
+
+            return;
+        }
+    }
+}
+
+function replaceTile(x, y, replacement) {
+    maps[room][y] =
+        maps[room][y].substring(0, x) +
+        replacement +
+        maps[room][y].substring(x + 1);
+}
+
+// =========================================================
+// ENEMY AI
+// =========================================================
+
+function updateEnemies(dt) {
+    for (const enemy of enemies) {
+        enemy.attackTimer -= dt;
+
+        const dx = player.x - enemy.x;
+        const dy = player.y - enemy.y;
+        const distance = Math.hypot(dx, dy);
+
+        if (distance < 240 && distance > 30) {
+            const vx = dx / distance;
+            const vy = dy / distance;
+            const speed = enemy.speed * dt;
+
+            const nx = enemy.x + vx * speed;
+
+            if (!collidesWall(nx, enemy.y, enemy.w, enemy.h)) {
+                enemy.x = nx;
+            }
+
+            const ny = enemy.y + vy * speed;
+
+            if (!collidesWall(enemy.x, ny, enemy.w, enemy.h)) {
+                enemy.y = ny;
+            }
+        }
+
+        if (distance < 32 && enemy.attackTimer <= 0) {
+            if (player.invincible <= 0) {
+                player.health--;
+                player.invincible = 1;
+
+                particle(
+                    player.x,
+                    player.y,
+                    "#ff5555"
+                );
+
+                if (player.health <= 0) {
+                    player.health = 0;
+                    gameOver = true;
+                }
+            }
+
+            enemy.attackTimer = 1;
+        }
+    }
+}
+
+// =========================================================
+// UPDATE
+// =========================================================
+
+function update(now) {
+    const dt = Math.min((now - lastTime) / 1000, 0.05);
+    lastTime = now;
+
+    if (!gameOver && !victory) {
+        let dx = 0;
+        let dy = 0;
+
+        if (keys["w"] || keys["arrowup"]) {
+            dy--;
+            player.direction = "up";
+        }
+
+        if (keys["s"] || keys["arrowdown"]) {
+            dy++;
+            player.direction = "down";
+        }
+
+        if (keys["a"] || keys["arrowleft"]) {
+            dx--;
+            player.direction = "left";
+        }
+
+        if (keys["d"] || keys["arrowright"]) {
+            dx++;
+            player.direction = "right";
+        }
+
+        // Normalize diagonal movement.
+        if (dx !== 0 || dy !== 0) {
+            const length = Math.hypot(dx, dy);
+
+            dx /= length;
+            dy /= length;
+
+            movePlayer(
+                dx * player.speed * dt,
+                dy * player.speed * dt
+            );
+        }
+
+        if (attackPressed || keys[" "]) {
+            startAttack();
+        }
+
+        if (interactPressed) {
+            interact();
+        }
+
+        attackPressed = false;
+        interactPressed = false;
+
+        player.attackTimer = Math.max(
+            0,
+            player.attackTimer - dt
+        );
+
+        player.attackCooldown = Math.max(
+            0,
+            player.attackCooldown - dt
+        );
+
+        player.invincible = Math.max(
+            0,
+            player.invincible - dt
+        );
+
+        if (player.attackTimer <= 0) {
+            player.attacking = false;
+        }
+
+        updateEnemies(dt);
+        updateParticles(dt);
+        checkExit();
+    } else {
+        attackPressed = false;
+        interactPressed = false;
+    }
+
+    if (messageTimer > 0) {
+        messageTimer -= dt;
+
+        if (messageTimer <= 0) {
+            document.getElementById("message").style.display = "none";
+        }
+    }
+
+    // Update the camera after player movement.
+    updateCamera(dt);
+
+    draw();
+
+    requestAnimationFrame(update);
+}
+
+// =========================================================
+// EXIT CHECK
+// =========================================================
+
+function checkExit() {
+    const tile = tileAt(player.x, player.y);
+
+    if (tile !== "X" || enemies.length !== 0) {
+        return;
+    }
+
+    if (room < maps.length - 1) {
+        loadRoom(room + 1);
+    } else {
+        victory = true;
+    }
+}
+
+// =========================================================
+// DRAW MAP
+// =========================================================
+
+function drawMap() {
+    const map = maps[room];
+
+    // Only draw tiles visible through the camera.
+    const startCol = Math.max(0, Math.floor(camera.x / TILE));
+    const startRow = Math.max(0, Math.floor(camera.y / TILE));
+
+    const endCol = Math.min(
+        MAP_COLS,
+        Math.ceil((camera.x + canvas.width) / TILE)
+    );
+
+    const endRow = Math.min(
+        MAP_ROWS,
+        Math.ceil((camera.y + canvas.height) / TILE)
+    );
+
+    for (let y = startRow; y < endRow; y++) {
+        for (let x = startCol; x < endCol; x++) {
+            const tile = map[y][x];
+
+            const px = x * TILE;
+            const py = y * TILE;
+
+            // Floor
+            ctx.fillStyle = "#315b32";
+            ctx.fillRect(px, py, TILE, TILE);
+
+            // Grass details, consistent for every frame.
+            ctx.fillStyle = "#3d6d39";
+
+            for (let i = 0; i < 3; i++) {
+                const gx = px + 7 + ((x * 13 + i * 17) % 32);
+                const gy = py + 8 + ((y * 19 + i * 11) % 30);
+
+                ctx.fillRect(gx, gy, 3, 3);
+            }
+
+            // Walls
+            if (tile === "#") {
+                ctx.fillStyle = "#26332b";
+                ctx.fillRect(px, py, TILE, TILE);
+
+                ctx.fillStyle = "#34483a";
+                ctx.fillRect(
+                    px + 4,
+                    py + 4,
+                    TILE - 8,
+                    10
+                );
+
+                ctx.fillStyle = "#1c261f";
+                ctx.fillRect(
+                    px + 5,
+                    py + 25,
+                    TILE - 10,
+                    16
+                );
+            }
+
+            if (tile === "C") drawChest(px, py);
+            if (tile === "D") drawDoor(px, py);
+            if (tile === "X") drawExit(px, py);
+        }
+    }
+}
+
+// =========================================================
+// CHEST
+// =========================================================
+
+function drawChest(x, y) {
+    ctx.fillStyle = "#8b531f";
+    ctx.fillRect(x + 8, y + 17, 32, 23);
+
+    ctx.fillStyle = "#c47b27";
+    ctx.fillRect(x + 8, y + 17, 32, 9);
+
+    ctx.fillStyle = "#ffd45c";
+    ctx.fillRect(x + 22, y + 25, 5, 8);
+
+    ctx.strokeStyle = "#42250d";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(x + 8, y + 17, 32, 23);
+}
+
+// =========================================================
+// DOOR
+// =========================================================
+
+function drawDoor(x, y) {
+    ctx.fillStyle = "#653d25";
+    ctx.fillRect(x + 8, y + 4, 32, 44);
+
+    ctx.fillStyle = "#b47b3e";
+    ctx.fillRect(x + 13, y + 8, 22, 36);
+
+    ctx.fillStyle = "#f5d65a";
+    ctx.fillRect(x + 28, y + 25, 5, 5);
+}
+
+// =========================================================
+// EXIT
+// =========================================================
+
+function drawExit(x, y) {
+    ctx.fillStyle = "#253e77";
+    ctx.fillRect(x + 5, y + 5, 38, 38);
+
+    ctx.fillStyle = "#5e8fff";
+    ctx.fillRect(x + 12, y + 12, 24, 24);
+
+    ctx.fillStyle = "#c4e8ff";
+    ctx.fillRect(x + 18, y + 8, 12, 30);
+}
+
+// =========================================================
+// PLAYER
+// =========================================================
+
+function drawPlayer() {
+    const x = player.x;
+    const y = player.y;
+
+    if (
+        player.invincible > 0 &&
+        Math.floor(player.invincible * 12) % 2 === 0
+    ) {
+        return;
+    }
+
+    // Shadow
+    ctx.fillStyle = "rgba(0,0,0,.35)";
+    ctx.beginPath();
+    ctx.ellipse(x, y + 13, 17, 7, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Body
+    ctx.fillStyle = "#286b43";
+    ctx.fillRect(x - 12, y - 3, 24, 22);
+
+    // Head
+    ctx.fillStyle = "#e4a66b";
+    ctx.fillRect(x - 11, y - 18, 22, 18);
+
+    // Hair
+    ctx.fillStyle = "#54351e";
+    ctx.fillRect(x - 11, y - 20, 22, 6);
+
+    // Hat
+    ctx.fillStyle = "#3f9b54";
+    ctx.beginPath();
+    ctx.moveTo(x - 13, y - 18);
+    ctx.lineTo(x + 13, y - 18);
+    ctx.lineTo(x + 8, y - 29);
+    ctx.lineTo(x - 6, y - 29);
+    ctx.closePath();
+    ctx.fill();
+
+    // Eyes
+    ctx.fillStyle = "#1b1b1b";
+    ctx.fillRect(x - 7, y - 12, 4, 4);
+    ctx.fillRect(x + 3, y - 12, 4, 4);
+
+    // Shield
+    ctx.fillStyle = "#687f9d";
+    ctx.beginPath();
+    ctx.arc(x + 15, y + 4, 8, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Sword attack
+    if (player.attacking) {
+        ctx.strokeStyle = "#e8f4ff";
+        ctx.lineWidth = 6;
+        ctx.lineCap = "square";
+
+        ctx.beginPath();
+
+        if (player.direction === "up") {
+            ctx.moveTo(x - 12, y - 22);
+            ctx.lineTo(x + 15, y - 45);
+        } else if (player.direction === "down") {
+            ctx.moveTo(x + 12, y + 18);
+            ctx.lineTo(x - 15, y + 43);
+        } else if (player.direction === "left") {
+            ctx.moveTo(x - 17, y - 5);
+            ctx.lineTo(x - 45, y + 8);
+        } else {
+            ctx.moveTo(x + 17, y - 5);
+            ctx.lineTo(x + 45, y - 18);
+        }
+
+        ctx.stroke();
+        ctx.lineCap = "butt";
+    }
+}
+
+// =========================================================
+// ENEMIES
+// =========================================================
+
+function drawEnemies() {
+    for (const enemy of enemies) {
+        const x = enemy.x;
+        const y = enemy.y;
+
+        // Shadow
+        ctx.fillStyle = "rgba(0,0,0,.3)";
+        ctx.beginPath();
+        ctx.ellipse(x, y + 13, 15, 6, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Body
+        ctx.fillStyle = "#8b3f54";
+        ctx.beginPath();
+        ctx.arc(x, y, 15, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Ears
+        ctx.fillStyle = "#a95163";
+
+        ctx.beginPath();
+        ctx.moveTo(x - 13, y - 8);
+        ctx.lineTo(x - 8, y - 22);
+        ctx.lineTo(x - 2, y - 9);
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.moveTo(x + 13, y - 8);
+        ctx.lineTo(x + 8, y - 22);
+        ctx.lineTo(x + 2, y - 9);
+        ctx.fill();
+
+        // Eyes
+        ctx.fillStyle = "#ffd85b";
+        ctx.fillRect(x - 8, y - 4, 5, 5);
+        ctx.fillRect(x + 3, y - 4, 5, 5);
+
+        // Health bar
+        ctx.fillStyle = "#1b1b1b";
+        ctx.fillRect(x - 15, y - 27, 30, 4);
+
+        ctx.fillStyle = "#e84c4c";
+        ctx.fillRect(
+            x - 15,
+            y - 27,
+            30 * (enemy.health / enemy.maxHealth),
+            4
+        );
+    }
+}
+
+// =========================================================
+// PARTICLES
+// =========================================================
+
+function drawParticles() {
+    for (const p of particles) {
+        ctx.globalAlpha = Math.min(1, p.life / 0.5);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x, p.y, 5, 5);
+    }
+
+    ctx.globalAlpha = 1;
+}
+
+// =========================================================
+// HUD
+// =========================================================
+
+function drawHUD() {
+    ctx.fillStyle = "rgba(10,15,15,.82)";
+    ctx.fillRect(10, 10, 260, 54);
+
+    for (let i = 0; i < player.maxHealth; i++) {
+        drawHeart(
+            25 + i * 30,
+            36,
+            i < player.health
+        );
+    }
+
+    ctx.fillStyle = "#f4d35e";
+    ctx.font = "16px Arial";
+    ctx.fillText("Score: " + score, 25, 57);
+
+    if (player.hasKey) {
+        ctx.fillStyle = "#ffe45c";
+        ctx.fillRect(230, 29, 12, 17);
+        ctx.fillText("KEY", 210, 25);
+    }
+
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "right";
+    ctx.fillText(
+        "Room " + (room + 1) + "/3",
+        canvas.width - 15,
+        30
+    );
+    ctx.textAlign = "left";
+}
+
+function drawHeart(x, y, full) {
+    ctx.fillStyle = full ? "#ff4f5e" : "#49252b";
+
+    ctx.beginPath();
+    ctx.moveTo(x, y + 8);
+    ctx.lineTo(x - 9, y - 2);
+
+    ctx.arc(x - 5, y - 3, 5, Math.PI, 0);
+    ctx.arc(x + 5, y - 3, 5, Math.PI, 0);
+
+    ctx.lineTo(x, y + 10);
+    ctx.fill();
+}
+
+// =========================================================
+// MESSAGES
+// =========================================================
+
+function showMessage(text) {
+    const box = document.getElementById("message");
+
+    box.textContent = text;
+    box.style.display = "block";
+
+    messageTimer = 2;
+}
+
+// =========================================================
+// WIN / GAME OVER
+// =========================================================
+
+function drawEndScreen() {
+    if (!gameOver && !victory) return;
+
+    ctx.fillStyle = "rgba(0,0,0,.75)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.textAlign = "center";
+
+    if (victory) {
+        ctx.fillStyle = "#f6d365";
+        ctx.font = "48px Arial";
+        ctx.fillText("VICTORY!", canvas.width / 2, 220);
+
+        ctx.fillStyle = "#fff";
+        ctx.font = "22px Arial";
+        ctx.fillText(
+            "You escaped the Forest Quest!",
+            canvas.width / 2,
+            265
+        );
+
+        ctx.fillText(
+            "Score: " + score,
+            canvas.width / 2,
+            305
+        );
+
+        ctx.font = "16px Arial";
+        ctx.fillText(
+            "Refresh the page to play again.",
+            canvas.width / 2,
+            350
+        );
+    } else {
+        ctx.fillStyle = "#e85d5d";
+        ctx.font = "48px Arial";
+        ctx.fillText("GAME OVER", canvas.width / 2, 240);
+
+        ctx.fillStyle = "#fff";
+        ctx.font = "20px Arial";
+        ctx.fillText(
+            "Refresh the page to try again.",
+            canvas.width / 2,
+            290
+        );
+
+        ctx.font = "16px Arial";
+        ctx.fillText(
+            "Final score: " + score,
+            canvas.width / 2,
+            325
+        );
+    }
+
+    ctx.textAlign = "left";
+}
+
+// =========================================================
+// MAIN DRAW
+// =========================================================
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Camera transform: world positions scroll with the player.
+    ctx.save();
+    ctx.translate(-Math.round(camera.x), -Math.round(camera.y));
+
+    drawMap();
+    drawEnemies();
+    drawPlayer();
+    drawParticles();
+
+    ctx.restore();
+
+    // HUD and messages stay fixed on the screen.
+    drawHUD();
+    drawEndScreen();
+}
+
+// =========================================================
+// START GAME
+// =========================================================
+
+snapCameraToPlayer();
+draw();
+requestAnimationFrame(update);
