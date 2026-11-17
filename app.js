@@ -199,51 +199,6 @@ const DOOR_LINKS = {
 };
 
 // =========================================================
-// ENEMIES
-// =========================================================
-
-let enemies = [];
-
-function makeEnemy(tx, ty) {
-    return {
-        x: tx * TILE + TILE / 2,
-        y: ty * TILE + TILE / 2,
-        w: 26,
-        h: 26,
-        speed: 55 + Math.random() * 20,
-        health: 2,
-        maxHealth: 2,
-        attackTimer: 0
-    };
-}
-
-function createEnemies() {
-    enemies = [];
-
-    if (room === 0) {
-        enemies.push(makeEnemy(11, 3));
-        enemies.push(makeEnemy(18, 7));
-        enemies.push(makeEnemy(5, 8));
-    }
-
-    if (room === 1) {
-        enemies.push(makeEnemy(3, 3));
-        enemies.push(makeEnemy(15, 3));
-        enemies.push(makeEnemy(19, 8));
-        enemies.push(makeEnemy(7, 9));
-    }
-
-    if (room === 2) {
-        enemies.push(makeEnemy(4, 2));
-        enemies.push(makeEnemy(17, 3));
-        enemies.push(makeEnemy(4, 8));
-        enemies.push(makeEnemy(19, 8));
-    }
-}
-
-createEnemies();
-
-// =========================================================
 // PARTICLES
 // =========================================================
 
@@ -335,13 +290,6 @@ function loadRoom(newRoom, spawnX = 7, spawnY = 9) {
     player.attacking = false;
     player.attackTimer = 0;
     player.attackCooldown = 0;
-
-    createEnemies();
-
-    player.health = Math.min(
-        player.health + 1,
-        player.maxHealth
-    );
 
     particles = [];
 
@@ -547,11 +495,6 @@ function interact() {
 
         // EXIT
         if (tile === "X") {
-            if (enemies.length !== 0) {
-                showMessage("Defeat every enemy first!");
-                return;
-            }
-
             if (room < maps.length - 1) {
                 loadRoom(room + 1);
             } else {
@@ -568,58 +511,6 @@ function replaceTile(x, y, replacement) {
         maps[room][y].substring(0, x) +
         replacement +
         maps[room][y].substring(x + 1);
-}
-
-// =========================================================
-// ENEMY AI
-// =========================================================
-
-function updateEnemies(dt) {
-    for (const enemy of enemies) {
-        enemy.attackTimer -= dt;
-
-        const dx = player.x - enemy.x;
-        const dy = player.y - enemy.y;
-        const distance = Math.hypot(dx, dy);
-
-        if (distance < 240 && distance > 30) {
-            const vx = dx / distance;
-            const vy = dy / distance;
-            const speed = enemy.speed * dt;
-
-            const nx = enemy.x + vx * speed;
-
-            if (!collidesWall(nx, enemy.y, enemy.w, enemy.h)) {
-                enemy.x = nx;
-            }
-
-            const ny = enemy.y + vy * speed;
-
-            if (!collidesWall(enemy.x, ny, enemy.w, enemy.h)) {
-                enemy.y = ny;
-            }
-        }
-
-        if (distance < 32 && enemy.attackTimer <= 0) {
-            if (player.invincible <= 0) {
-                player.health--;
-                player.invincible = 1;
-
-                particle(
-                    player.x,
-                    player.y,
-                    "#ff5555"
-                );
-
-                if (player.health <= 0) {
-                    player.health = 0;
-                    gameOver = true;
-                }
-            }
-
-            enemy.attackTimer = 1;
-        }
-    }
 }
 
 // =========================================================
@@ -696,8 +587,6 @@ function update(now) {
         if (player.attackTimer <= 0) {
             player.attacking = false;
         }
-
-        updateEnemies(dt);
         updateParticles(dt);
         checkExit();
     } else {
@@ -726,11 +615,6 @@ function update(now) {
 
 function checkExit() {
     const tile = tileAt(player.x, player.y);
-
-    if (tile !== "X" || enemies.length !== 0) {
-        return;
-    }
-
     if (room < maps.length - 1) {
         loadRoom(room + 1);
     } else {
@@ -935,61 +819,6 @@ function drawPlayer() {
 
         ctx.stroke();
         ctx.lineCap = "butt";
-    }
-}
-
-// =========================================================
-// ENEMIES
-// =========================================================
-
-function drawEnemies() {
-    for (const enemy of enemies) {
-        const x = enemy.x;
-        const y = enemy.y;
-
-        // SHADOW
-        ctx.fillStyle = "rgba(0,0,0,.3)";
-        ctx.beginPath();
-        ctx.ellipse(x, y + 13, 15, 6, 0, 0, Math.PI * 2);
-        ctx.fill();
-
-        // BODY
-        ctx.fillStyle = "#8b3f54";
-        ctx.beginPath();
-        ctx.arc(x, y, 15, 0, Math.PI * 2);
-        ctx.fill();
-
-        // EARS
-        ctx.fillStyle = "#a95163";
-
-        ctx.beginPath();
-        ctx.moveTo(x - 13, y - 8);
-        ctx.lineTo(x - 8, y - 22);
-        ctx.lineTo(x - 2, y - 9);
-        ctx.fill();
-
-        ctx.beginPath();
-        ctx.moveTo(x + 13, y - 8);
-        ctx.lineTo(x + 8, y - 22);
-        ctx.lineTo(x + 2, y - 9);
-        ctx.fill();
-
-        // EYES
-        ctx.fillStyle = "#ffd85b";
-        ctx.fillRect(x - 8, y - 4, 5, 5);
-        ctx.fillRect(x + 3, y - 4, 5, 5);
-
-        // HEALTH BAR
-        ctx.fillStyle = "#1b1b1b";
-        ctx.fillRect(x - 15, y - 27, 30, 4);
-
-        ctx.fillStyle = "#e84c4c";
-        ctx.fillRect(
-            x - 15,
-            y - 27,
-            30 * (enemy.health / enemy.maxHealth),
-            4
-        );
     }
 }
 
