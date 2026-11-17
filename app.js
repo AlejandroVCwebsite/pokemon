@@ -1,6 +1,3 @@
-<script>
-"use strict";
-
 // =========================================================
 // CANVAS AND CONSTANTS
 // =========================================================
@@ -1141,5 +1138,3 @@ function draw() {
 snapCameraToPlayer();
 draw();
 requestAnimationFrame(update);
-
-</script>
