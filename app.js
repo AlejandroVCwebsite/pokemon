@@ -1,4 +1,3 @@
-
 // =========================================================
 // CANVAS AND CONSTANTS
 // =========================================================
@@ -26,21 +25,19 @@ const TILE = 48;
 const keys = Object.create(null);
 
 let interactPressed = false;
-let attackPressed = false;
 
 window.addEventListener("keydown", (e) => {
     const key = e.key.toLowerCase();
 
     if (
         ["arrowup", "arrowdown", "arrowleft",
-         "arrowright", " "].includes(key)
+         "arrowright"].includes(key)
     ) {
         e.preventDefault();
     }
 
     if (!keys[key]) {
         if (key === "e") interactPressed = true;
-        if (key === " ") attackPressed = true;
     }
 
     keys[key] = true;
@@ -56,7 +53,6 @@ window.addEventListener("blur", () => {
     }
 
     interactPressed = false;
-    attackPressed = false;
 });
 
 // =========================================================
@@ -78,11 +74,7 @@ const player = {
     speed: 190,
     health: 5,
     maxHealth: 5,
-    attacking: false,
-    attackTimer: 0,
-    attackCooldown: 0,
     direction: "up",
-    invincible: 0,
     hasKey: false
 };
 
@@ -287,9 +279,10 @@ function loadRoom(newRoom, spawnX = 7, spawnY = 9) {
     player.x = spawnX * TILE + TILE / 2;
     player.y = spawnY * TILE + TILE / 2;
 
-    player.attacking = false;
-    player.attackTimer = 0;
-    player.attackCooldown = 0;
+    player.health = Math.min(
+        player.health + 1,
+        player.maxHealth
+    );
 
     particles = [];
 
@@ -361,61 +354,6 @@ function movePlayer(dx, dy) {
 
     if (!collidesWall(player.x, ny, player.w, player.h)) {
         player.y = ny;
-    }
-}
-
-// =========================================================
-// COMBAT
-// =========================================================
-
-function startAttack() {
-    if (
-        player.attackCooldown > 0 ||
-        gameOver ||
-        victory
-    ) {
-        return;
-    }
-
-    player.attacking = true;
-    player.attackTimer = 0.18;
-    player.attackCooldown = 0.35;
-
-    checkAttackHits();
-}
-
-function checkAttackHits() {
-    const range = 48;
-
-    let ax = player.x;
-    let ay = player.y;
-
-    if (player.direction === "up") ay -= range;
-    if (player.direction === "down") ay += range;
-    if (player.direction === "left") ax -= range;
-    if (player.direction === "right") ax += range;
-
-    for (let i = enemies.length - 1; i >= 0; i--) {
-        const enemy = enemies[i];
-
-        if (Math.hypot(enemy.x - ax, enemy.y - ay) < 40) {
-            enemy.health--;
-
-            particle(enemy.x, enemy.y, "#ffdf5d");
-
-            if (enemy.health <= 0) {
-                score += 100;
-
-                particle(
-                    enemy.x,
-                    enemy.y,
-                    "#7cff70",
-                    14
-                );
-
-                enemies.splice(i, 1);
-            }
-        }
     }
 }
 
@@ -558,39 +496,15 @@ function update(now) {
             );
         }
 
-        if (attackPressed || keys[" "]) {
-            startAttack();
-        }
-
         if (interactPressed) {
             interact();
         }
 
-        attackPressed = false;
         interactPressed = false;
 
-        player.attackTimer = Math.max(
-            0,
-            player.attackTimer - dt
-        );
-
-        player.attackCooldown = Math.max(
-            0,
-            player.attackCooldown - dt
-        );
-
-        player.invincible = Math.max(
-            0,
-            player.invincible - dt
-        );
-
-        if (player.attackTimer <= 0) {
-            player.attacking = false;
-        }
         updateParticles(dt);
         checkExit();
     } else {
-        attackPressed = false;
         interactPressed = false;
     }
 
@@ -615,6 +529,11 @@ function update(now) {
 
 function checkExit() {
     const tile = tileAt(player.x, player.y);
+
+    if (tile !== "X") {
+        return;
+    }
+
     if (room < maps.length - 1) {
         loadRoom(room + 1);
     } else {
@@ -749,13 +668,6 @@ function drawPlayer() {
     const x = player.x;
     const y = player.y;
 
-    if (
-        player.invincible > 0 &&
-        Math.floor(player.invincible * 12) % 2 === 0
-    ) {
-        return;
-    }
-
     // SHADOW
     ctx.fillStyle = "rgba(0,0,0,.35)";
     ctx.beginPath();
@@ -794,32 +706,6 @@ function drawPlayer() {
     ctx.beginPath();
     ctx.arc(x + 15, y + 4, 8, 0, Math.PI * 2);
     ctx.fill();
-
-    // SWORD ATTACK
-    if (player.attacking) {
-        ctx.strokeStyle = "#e8f4ff";
-        ctx.lineWidth = 6;
-        ctx.lineCap = "square";
-
-        ctx.beginPath();
-
-        if (player.direction === "up") {
-            ctx.moveTo(x - 12, y - 22);
-            ctx.lineTo(x + 15, y - 45);
-        } else if (player.direction === "down") {
-            ctx.moveTo(x + 12, y + 18);
-            ctx.lineTo(x - 15, y + 43);
-        } else if (player.direction === "left") {
-            ctx.moveTo(x - 17, y - 5);
-            ctx.lineTo(x - 45, y + 8);
-        } else {
-            ctx.moveTo(x + 17, y - 5);
-            ctx.lineTo(x + 45, y - 18);
-        }
-
-        ctx.stroke();
-        ctx.lineCap = "butt";
-    }
 }
 
 // =========================================================
@@ -981,7 +867,6 @@ function draw() {
     );
 
     drawMap();
-    drawEnemies();
     drawPlayer();
     drawParticles();
 
