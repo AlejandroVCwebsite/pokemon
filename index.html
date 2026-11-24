@@ -1,0 +1,127 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Forest Quest - Teacher Battle RPG</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main id="gameApp">
+    <header class="topbar">
+      <div>
+        <h1>Forest Quest</h1>
+        <p>Teacher Battle Arena RPG</p>
+      </div>
+      <div class="top-stats">
+        <span>Level <b id="levelText">1</b></span>
+        <span>XP <b id="xpText">0</b></span>
+        <span>Gold <b id="goldText">50</b></span>
+        <span>Weapon <b id="weaponText">Wooden Sword</b></span>
+      </div>
+    </header>
+
+    <div class="layout">
+      <section class="world-panel">
+        <div class="canvas-wrap">
+          <canvas id="world" width="960" height="600"></canvas>
+          <div id="message" class="message">
+            Welcome! Use WASD or the arrow keys to move. Press E to interact.
+          </div>
+        </div>
+        <div class="controls">
+          <span><kbd>WASD</kbd> / <kbd>Arrows</kbd> Move</span>
+          <span><kbd>E</kbd> Interact / talk</span>
+          <span><kbd>Space</kbd> Quick attack</span>
+        </div>
+      </section>
+
+      <aside class="sidebar">
+        <section class="panel">
+          <h2>Adventurer</h2>
+          <div class="stat-row">
+            <span>Health</span>
+            <b id="healthText">100 / 100</b>
+          </div>
+          <div class="bar"><div id="playerHealthBar"></div></div>
+          <div class="stat-row">
+            <span>Potions</span>
+            <b id="potionText">3</b>
+          </div>
+          <div class="stat-row">
+            <span>Inventory</span>
+            <b id="keyText">No key</b>
+          </div>
+          <div class="stat-row">
+            <span>Location</span>
+            <b id="roomText">Forest Entrance</b>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Trainet marker</h2>
+          <p class="muted">
+            Set Trainet's destination on any map. Walk to the marker and
+            press E to travel there.
+          </p>
+          <label for="trainetRoom">Map</label>
+          <select id="trainetRoom">
+            <option value="0">Forest Entrance</option>
+            <option value="1">Old Ruins</option>
+            <option value="2">Deep Woods</option>
+          </select>
+          <div class="two-inputs">
+            <div>
+              <label for="trainetX">Tile X</label>
+              <input id="trainetX" type="number" min="1" value="20">
+            </div>
+            <div>
+              <label for="trainetY">Tile Y</label>
+              <input id="trainetY" type="number" min="1" value="10">
+            </div>
+          </div>
+          <button id="moveTrainetButton" class="secondary">
+            Place Trainet marker
+          </button>
+          <button id="placeAtPlayerButton" class="secondary">
+            Place at my position
+          </button>
+          <p id="trainetStatus" class="muted">Trainet marker ready.</p>
+        </section>
+
+        <section class="panel">
+          <h2>Nearby interaction</h2>
+          <p id="interactionText">
+            Explore the forest. Approach characters, creatures, chests,
+            doors, or Trainet and press E.
+          </p>
+          <button id="interactButton">Interact</button>
+          <button id="restartButton" class="secondary">Restart game</button>
+        </section>
+
+        <section class="panel battle-panel" id="battlePanel" hidden>
+          <h2 id="battleTitle">Battle!</h2>
+          <div class="battle-heading">
+            <span>You</span>
+            <b id="battlePlayerHealth">100 HP</b>
+          </div>
+          <div class="battle-heading">
+            <span id="battleEnemyName">Rat Badger</span>
+            <b id="battleEnemyHealth">30 HP</b>
+          </div>
+          <div class="bar enemy-bar"><div id="enemyHealthBar"></div></div>
+          <div class="battle-actions">
+            <button id="attackButton">Attack</button>
+            <button id="heavyButton" class="secondary">Heavy attack</button>
+            <button id="potionButton" class="secondary">Use potion</button>
+            <button id="runButton" class="danger">Run away</button>
+          </div>
+          <p id="battleLog" aria-live="polite">A battle begins!</p>
+        </section>
+      </aside>
+    </div>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
