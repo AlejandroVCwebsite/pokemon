@@ -1,0 +1,120 @@
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 20px;
+  min-height: 100vh;
+  background: #171717;
+  color: white;
+  font-family: Arial, sans-serif;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+#game {
+  width: 100%;
+  max-width: 650px;
+  background: #292929;
+  border: 3px solid #d4a017;
+  border-radius: 15px;
+  padding: 25px;
+  box-shadow: 0 0 25px rgba(212, 160, 23, 0.3);
+}
+
+h1 {
+  text-align: center;
+  color: #ffd700;
+  margin-top: 0;
+}
+
+#stats {
+  display: flex;
+  justify-content: space-around;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.stat {
+  background: #444;
+  padding: 10px;
+  border-radius: 6px;
+}
+
+#content {
+  text-align: center;
+  margin: 20px 0;
+}
+
+.center {
+  max-width: 100%;
+  width: 100%;
+  max-height: 250px;
+  object-fit: contain;
+  border-radius: 10px;
+}
+
+#controls {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin: 20px 0;
+}
+
+button {
+  padding: 13px;
+  background: #d4a017;
+  color: #171717;
+  font-weight: bold;
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+button:hover {
+  background: #ffd700;
+  transform: scale(1.03);
+}
+
+button:active {
+  transform: scale(0.98);
+}
+
+#monsterStats {
+  display: none;
+  background: #641c1c;
+  border: 2px solid #e53935;
+  padding: 12px;
+  border-radius: 8px;
+  margin-bottom: 15px;
+  gap: 15px;
+  justify-content: space-around;
+}
+
+#text {
+  background: #111;
+  border: 2px solid #555;
+  border-radius: 8px;
+  padding: 18px;
+  line-height: 1.6;
+  min-height: 90px;
+}
+
+@media (max-width: 480px) {
+  #game {
+    padding: 15px;
+  }
+
+  #controls {
+    grid-template-columns: 1fr;
+  }
+
+  #stats {
+    flex-direction: column;
+  }
+}
